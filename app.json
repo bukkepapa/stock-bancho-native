@@ -22,7 +22,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1B5E20"
       },
-      "googleServicesFile": "./google-services.json"
     },
     "plugins": [
       "expo-router",
@@ -37,6 +36,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "c4fd2009-ba7e-41e2-9259-8a3163aea230"
+      }
+    },
+    "owner": "bukkepapa"
   }
 }
