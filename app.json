@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.masami.stockbancho",
-      "versionCode": 2,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1B5E20"
@@ -38,6 +38,15 @@
           "icon": "./assets/notification-icon.png",
           "color": "#1B5E20",
           "sounds": []
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "targetSdkVersion": 35,
+            "compileSdkVersion": 35
+          }
         }
       ]
     ],
