@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppState, PurchaseLog } from '../constants/defaults';
+import { AppState, PurchaseLog, migrateLegacySettings, ensureInventoryItems } from '../constants/defaults';
 
 const SUPABASE_URL = 'https://spfdvwcgvaaqfwxfyicc.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -35,11 +35,20 @@ export async function syncFromServer(userId: string, localState: AppState): Prom
 
   if (error || !data?.data) return null;
 
-  const serverData = data.data as AppState;
-  if (!serverData.inventory || !serverData.settings) return null;
+  const raw = data.data as Record<string, unknown>;
+  if (!raw.inventory || !raw.settings) return null;
+
+  // 旧フォーマット対応：サーバーデータをマイグレーション
+  const serverSettings = migrateLegacySettings(raw.settings);
+  const rawInv = raw.inventory as Record<string, { count: number; updatedAt?: string | null }>;
+  const serverInv: Record<string, { count: number; updatedAt: string | null }> = {};
+  for (const [k, v] of Object.entries(rawInv)) {
+    serverInv[k] = { count: v.count ?? 0, updatedAt: v.updatedAt ?? null };
+  }
+  const serverInventory = ensureInventoryItems(serverInv, serverSettings.items);
 
   // 最終更新日時で新しい方を採用
-  const serverLatest = Object.values(serverData.inventory)
+  const serverLatest = Object.values(serverInventory)
     .map(v => (v.updatedAt ? new Date(v.updatedAt).getTime() : 0))
     .reduce((a, b) => Math.max(a, b), 0);
   const localLatest = Object.values(localState.inventory)
@@ -49,7 +58,7 @@ export async function syncFromServer(userId: string, localState: AppState): Prom
   if (serverLatest <= localLatest) return null;
 
   // purchaseLogs マージ
-  const serverLogs = serverData.purchaseLogs ?? [];
+  const serverLogs = (raw.purchaseLogs as PurchaseLog[]) ?? [];
   const localLogs  = localState.purchaseLogs;
   const byDate = new Map<string, PurchaseLog>();
   [...serverLogs, ...localLogs].forEach(log => {
@@ -63,5 +72,5 @@ export async function syncFromServer(userId: string, localState: AppState): Prom
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 30);
 
-  return { settings: serverData.settings, inventory: serverData.inventory, purchaseLogs: mergedLogs };
+  return { settings: serverSettings, inventory: serverInventory, purchaseLogs: mergedLogs };
 }

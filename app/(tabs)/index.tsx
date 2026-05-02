@@ -1,24 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  RefreshControl, Modal, Alert,
+  RefreshControl, Modal,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, ITEM_KEYS, ITEMS } from '../../constants/items';
+import { COLORS, ItemDef } from '../../constants/items';
 import { AppState } from '../../constants/defaults';
 import {
   getStockDays, getStockStatus, getNextShoppingInfo, isShoppingDay,
-  getSuggestedPurchase, formatSuggestionAmount, formatDateTime, todayString,
+  getSuggestedPurchase, formatSuggestionAmount, formatDateTime,
 } from '../../lib/stockLogic';
 import { loadState, saveState, getUserId } from '../../lib/storage';
 import { syncToServer, syncFromServer } from '../../lib/supabase';
 import { registerForPushNotifications } from '../../lib/notifications';
 
 export default function HomeScreen() {
-  const [appState, setAppState]     = useState<AppState | null>(null);
+  const [appState,   setAppState]   = useState<AppState | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [showModal, setShowModal]   = useState(false);
+  const [showModal,  setShowModal]  = useState(false);
   const userIdRef = useRef<string>('');
 
   // 初期化
@@ -73,11 +73,11 @@ export default function HomeScreen() {
   }
 
   const { settings, inventory } = appState;
-  const { daysUntil, dayName } = getNextShoppingInfo(settings.shoppingDays);
-  const todayIsShopping = isShoppingDay(settings.shoppingDays);
+  const { daysUntil, dayName }  = getNextShoppingInfo(settings.shoppingDays);
+  const todayIsShopping         = isShoppingDay(settings.shoppingDays);
 
-  const latestUpdate = ITEM_KEYS
-    .map(k => inventory[k].updatedAt)
+  const latestUpdate = settings.items
+    .map(item => inventory[item.id]?.updatedAt)
     .filter(Boolean)
     .map(s => new Date(s!).getTime())
     .sort((a, b) => b - a)[0];
@@ -97,10 +97,13 @@ export default function HomeScreen() {
 
         {/* アラートバナー */}
         {(() => {
-          const alertNames = ITEM_KEYS.filter(item => {
-            const stockDays = getStockDays(item, inventory[item].count, settings);
-            return getStockStatus(stockDays, daysUntil) === 'ALERT';
-          }).map(k => ITEMS[k].name);
+          const alertNames = settings.items
+            .filter(item => {
+              const count     = inventory[item.id]?.count ?? 0;
+              const stockDays = getStockDays(item, count);
+              return getStockStatus(stockDays, daysUntil) === 'ALERT';
+            })
+            .map(item => item.name);
 
           if (alertNames.length === 0) return null;
           return (
@@ -115,10 +118,9 @@ export default function HomeScreen() {
         })()}
 
         {/* 在庫カード */}
-        {ITEM_KEYS.map(item => {
-          const { name, emoji, inputUnit } = ITEMS[item];
-          const count     = inventory[item].count;
-          const stockDays = getStockDays(item, count, settings);
+        {settings.items.map(item => {
+          const count     = inventory[item.id]?.count ?? 0;
+          const stockDays = getStockDays(item, count);
           const status    = getStockStatus(stockDays, daysUntil);
 
           const cardStyle = {
@@ -140,17 +142,17 @@ export default function HomeScreen() {
           }[status];
 
           return (
-            <View key={item} style={[styles.card, cardStyle]}>
+            <View key={item.id} style={[styles.card, cardStyle]}>
               <View style={styles.cardHeader}>
-                <Text style={styles.cardEmoji}>{emoji}</Text>
-                <Text style={styles.cardName}>{name}</Text>
+                <Text style={styles.cardEmoji}>{item.emoji}</Text>
+                <Text style={styles.cardName}>{item.name}</Text>
                 <View style={[styles.statusBadge, badgeStyle]}>
                   <Text style={styles.statusBadgeText}>{badgeText}</Text>
                 </View>
               </View>
               <View style={styles.cardBody}>
                 <Text style={styles.cardCount}>
-                  {ITEMS[item].decimal ? Number(count).toFixed(1) : count} {inputUnit}
+                  {item.decimal ? Number(count).toFixed(1) : count} {item.unit}
                 </Text>
                 <Text style={styles.cardDays}>
                   あと <Text style={styles.cardDaysBold}>{stockDays.toFixed(1)}</Text> 日分
@@ -205,19 +207,21 @@ function SuggestionModal({
           <Text style={modal.title}>🛒 今日の買い物リスト</Text>
           <Text style={modal.subtitle}>{dayName}曜まで（{daysUntil}日分）</Text>
 
-          {ITEM_KEYS.map(item => {
-            const s = getSuggestedPurchase(item, inventory[item].count, daysUntil, settings);
-            const { name, emoji } = ITEMS[item];
-            return (
-              <View key={item} style={[modal.row, s.needed ? modal.rowNeeded : modal.rowOk]}>
-                <Text style={modal.rowEmoji}>{emoji}</Text>
-                <Text style={modal.rowName}>{name}</Text>
-                <Text style={[modal.rowAmount, s.needed ? modal.rowAmountNeeded : modal.rowAmountOk]}>
-                  {formatSuggestionAmount(item, s)}
-                </Text>
-              </View>
-            );
-          })}
+          <ScrollView>
+            {settings.items.map((item: ItemDef) => {
+              const count = inventory[item.id]?.count ?? 0;
+              const s     = getSuggestedPurchase(item, count, daysUntil);
+              return (
+                <View key={item.id} style={[modal.row, s.needed ? modal.rowNeeded : modal.rowOk]}>
+                  <Text style={modal.rowEmoji}>{item.emoji}</Text>
+                  <Text style={modal.rowName}>{item.name}</Text>
+                  <Text style={[modal.rowAmount, s.needed ? modal.rowAmountNeeded : modal.rowAmountOk]}>
+                    {formatSuggestionAmount(item, s)}
+                  </Text>
+                </View>
+              );
+            })}
+          </ScrollView>
 
           <TouchableOpacity style={modal.closeBtn} onPress={onClose}>
             <Text style={modal.closeBtnText}>閉じる</Text>
@@ -253,11 +257,11 @@ const styles = StyleSheet.create({
   cardEmoji:     { fontSize: 24, marginRight: 8 },
   cardName:      { fontSize: 16, fontWeight: 'bold', flex: 1, color: COLORS.black },
 
-  statusBadge:   { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
-  statusBadgeOk:   { backgroundColor: COLORS.primaryMid },
-  statusBadgeWarn: { backgroundColor: COLORS.accent },
-  statusBadgeAlert:{ backgroundColor: COLORS.alertText },
-  statusBadgeText: { color: COLORS.white, fontSize: 11, fontWeight: 'bold' },
+  statusBadge:      { borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 },
+  statusBadgeOk:    { backgroundColor: COLORS.primaryMid },
+  statusBadgeWarn:  { backgroundColor: COLORS.accent },
+  statusBadgeAlert: { backgroundColor: COLORS.alertText },
+  statusBadgeText:  { color: COLORS.white, fontSize: 11, fontWeight: 'bold' },
 
   cardBody:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   cardCount:     { fontSize: 28, fontWeight: 'bold', color: COLORS.black },
@@ -272,18 +276,19 @@ const styles = StyleSheet.create({
 });
 
 const modal = StyleSheet.create({
-  overlay:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet:       { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40 },
-  title:       { fontSize: 20, fontWeight: 'bold', color: COLORS.primary, marginBottom: 4 },
-  subtitle:    { fontSize: 13, color: COLORS.grayMid, marginBottom: 16 },
-  row:         { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8, marginBottom: 8 },
-  rowNeeded:   { backgroundColor: COLORS.alertBg },
-  rowOk:       { backgroundColor: COLORS.lightBg },
-  rowEmoji:    { fontSize: 22, marginRight: 10 },
-  rowName:     { fontSize: 15, flex: 1, color: COLORS.black },
-  rowAmount:   { fontSize: 15, fontWeight: 'bold' },
+  overlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet:     { backgroundColor: COLORS.white, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+               padding: 24, paddingBottom: 40, maxHeight: '80%' },
+  title:     { fontSize: 20, fontWeight: 'bold', color: COLORS.primary, marginBottom: 4 },
+  subtitle:  { fontSize: 13, color: COLORS.grayMid, marginBottom: 16 },
+  row:       { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 8, marginBottom: 8 },
+  rowNeeded: { backgroundColor: COLORS.alertBg },
+  rowOk:     { backgroundColor: COLORS.lightBg },
+  rowEmoji:  { fontSize: 22, marginRight: 10 },
+  rowName:   { fontSize: 15, flex: 1, color: COLORS.black },
+  rowAmount: { fontSize: 15, fontWeight: 'bold' },
   rowAmountNeeded: { color: COLORS.alertText },
   rowAmountOk:     { color: COLORS.primaryMid },
-  closeBtn:    { backgroundColor: COLORS.primary, borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 8 },
-  closeBtnText:{ color: COLORS.white, fontWeight: 'bold', fontSize: 16 },
+  closeBtn:  { backgroundColor: COLORS.primary, borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 8 },
+  closeBtnText: { color: COLORS.white, fontWeight: 'bold', fontSize: 16 },
 });

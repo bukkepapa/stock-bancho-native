@@ -1,13 +1,10 @@
-import { ItemKey, DAY_NAMES } from '../constants/items';
-import { Settings } from '../constants/defaults';
+import { ItemDef, DAY_NAMES } from '../constants/items';
+import { Inventory } from '../constants/defaults';
 
 // ── 在庫日数計算 ─────────────────────────────────────────────
-export function getStockDays(item: ItemKey, count: number, settings: Settings): number {
-  if (item === 'coffee') {
-    const totalMl = count * settings.purchaseUnit.coffee.amount;
-    return totalMl / settings.dailyConsumption.coffee.amount;
-  }
-  return count / settings.dailyConsumption[item].amount;
+export function getStockDays(item: ItemDef, count: number): number {
+  if (!item.dailyAmount || item.dailyAmount <= 0) return 999;
+  return count / item.dailyAmount;
 }
 
 // ── 次の買い物日 ─────────────────────────────────────────────
@@ -46,42 +43,48 @@ export function getStockStatus(stockDays: number, daysUntilShopping: number): St
 // ── 買い物サジェスト計算 ─────────────────────────────────────
 export interface Suggestion {
   needed: boolean;
-  unitCount: number;
-  displayCount: number;
+  unitCount: number;    // 購入単位の数
+  displayCount: number; // 表示用の数量（unit換算）
 }
 
 export function getSuggestedPurchase(
-  item: ItemKey,
+  item: ItemDef,
   currentCount: number,
   daysUntilNextShopping: number,
-  settings: Settings
 ): Suggestion {
-  const daily    = settings.dailyConsumption[item].amount;
-  const unitSize = settings.purchaseUnit[item].amount;
-
-  const currentAmount = item === 'coffee'
-    ? currentCount * unitSize
-    : currentCount;
-
-  const needed   = daily * daysUntilNextShopping;
-  const shortage = needed - currentAmount;
+  const needed    = item.dailyAmount * daysUntilNextShopping;
+  const shortage  = needed - currentCount;
 
   if (shortage <= 0) return { needed: false, unitCount: 0, displayCount: 0 };
 
-  const unitCount   = Math.ceil(shortage / unitSize);
-  const totalAmount = unitCount * unitSize;
-  const displayCount = item === 'coffee' ? unitCount : totalAmount;
+  const unitCount    = Math.ceil(shortage / item.purchaseAmount);
+  const displayCount = unitCount * item.purchaseAmount;
 
   return { needed: true, unitCount, displayCount };
 }
 
-export function formatSuggestionAmount(item: ItemKey, s: Suggestion): string {
+export function formatSuggestionAmount(item: ItemDef, s: Suggestion): string {
   if (!s.needed) return '購入不要 ✅';
   const { unitCount, displayCount } = s;
-  if (item === 'coffee') return `${unitCount}本`;
-  if (item === 'egg')    return `${unitCount}ケース（${displayCount}個）`;
-  if (item === 'cheese') return `${unitCount}スリーブ（${displayCount}個）`;
-  return `${displayCount}個`;
+  if (item.purchaseUnitName && item.purchaseUnitName !== item.unit) {
+    return `${unitCount}${item.purchaseUnitName}（${displayCount}${item.unit}）`;
+  }
+  return `${displayCount}${item.unit}`;
+}
+
+// ── アラート品目名リスト（通知用） ────────────────────────────
+export function getAlertItemNames(
+  items: ItemDef[],
+  inventory: Inventory,
+  daysUntil: number,
+): string[] {
+  return items
+    .filter(item => {
+      const count     = inventory[item.id]?.count ?? 0;
+      const stockDays = getStockDays(item, count);
+      return getStockStatus(stockDays, daysUntil) === 'ALERT';
+    })
+    .map(item => item.name);
 }
 
 // ── 日付フォーマット ─────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { COLORS, ITEM_KEYS, ITEMS, DAY_NAMES } from '../../constants/items';
+import { COLORS, DAY_NAMES, ItemDef } from '../../constants/items';
 import { AppState } from '../../constants/defaults';
 import { loadState } from '../../lib/storage';
 
@@ -18,15 +18,18 @@ export default function HistoryScreen() {
     return <View style={s.loading}><Text>読み込み中...</Text></View>;
   }
 
-  const today = new Date();
-  const last7 = Array.from({ length: 7 }, (_, i) => {
+  const { settings, purchaseLogs } = appState;
+  const itemMap = new Map<string, ItemDef>(settings.items.map(i => [i.id, i]));
+
+  const today  = new Date();
+  const last7  = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     return d.toISOString().split('T')[0];
   });
 
   const shoppingCount = last7.filter(date => {
-    const log = appState.purchaseLogs.find(l => l.date === date);
+    const log = purchaseLogs.find(l => l.date === date);
     return log?.wentShopping;
   }).length;
 
@@ -55,7 +58,7 @@ export default function HistoryScreen() {
       <Text style={s.sectionTitle}>直近 7 日間</Text>
 
       {last7.map(date => {
-        const log = appState.purchaseLogs.find(l => l.date === date);
+        const log = purchaseLogs.find(l => l.date === date);
         const d   = new Date(date + 'T00:00:00');
         const label = `${d.getMonth() + 1}/${d.getDate()}（${DAY_NAMES[d.getDay()]}）`;
 
@@ -70,9 +73,9 @@ export default function HistoryScreen() {
           );
         }
 
-        const purchasedItems = ITEM_KEYS.filter(
-          item => log.purchased[item] && log.purchased[item].count > 0
-        );
+        // 購入した品目を取得（動的ID対応）
+        const purchasedEntries = Object.entries(log.purchased ?? {})
+          .filter(([, val]) => val.count > 0);
 
         return (
           <View key={date} style={[s.historyItem, log.wentShopping && s.wentShopping]}>
@@ -85,15 +88,18 @@ export default function HistoryScreen() {
               )}
             </View>
 
-            {purchasedItems.length > 0 && (
+            {purchasedEntries.length > 0 && (
               <View style={s.purchasedRow}>
-                {purchasedItems.map(item => {
-                  const cnt  = log.purchased[item].count;
-                  const disp = ITEMS[item].decimal ? Number(cnt).toFixed(1) : cnt;
+                {purchasedEntries.map(([itemId, val]) => {
+                  // 現在の品目設定から絵文字・名前を逆引き（削除済み品目はIDをそのまま表示）
+                  const itemDef = itemMap.get(itemId);
+                  const emoji   = itemDef?.emoji ?? '📦';
+                  const unit    = val.unit || itemDef?.unit || '';
+                  const disp    = itemDef?.decimal ? Number(val.count).toFixed(1) : val.count;
                   return (
-                    <View key={item} style={s.purchasedChip}>
+                    <View key={itemId} style={s.purchasedChip}>
                       <Text style={s.purchasedChipText}>
-                        {ITEMS[item].emoji} {disp}{ITEMS[item].inputUnit}
+                        {emoji} {disp}{unit}
                       </Text>
                     </View>
                   );
@@ -136,7 +142,7 @@ const s = StyleSheet.create({
   historyDate:   { fontSize: 15, fontWeight: 'bold', color: COLORS.black },
   noDataText:    { fontSize: 12, color: COLORS.grayMid },
 
-  shoppingBadge: { backgroundColor: COLORS.warnBg, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
+  shoppingBadge:     { backgroundColor: COLORS.warnBg, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
   shoppingBadgeText: { fontSize: 12, color: COLORS.warnText, fontWeight: 'bold' },
 
   purchasedRow:  { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
